@@ -33,11 +33,12 @@ namespace gRPCClient.Controllers
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
 
-        public async Task<IActionResult> Unary()
+        [HttpGet("Home/Unary/{id}")]
+        public async Task<IActionResult> Unary(int id)
         {
             var channel = GrpcChannel.ForAddress("https://localhost:7181");
             var client = new Greeter.GreeterClient(channel);
-            var reply = await client.SendStatusAsync(new SRequest { No = 3 });
+            var reply = await client.SendStatusAsync(new SRequest { No = id });
             return View("ShowStatus", (object)ChangetoDictionary(reply));
         }
         private Dictionary<string, string> ChangetoDictionary(SResponse response)
@@ -48,22 +49,22 @@ namespace gRPCClient.Controllers
             return statusDict;
         }
 
-        public async Task<IActionResult> ServerStreaming()
+        [HttpGet("Home/ServerStreaming/{id}")]
+        public async Task<IActionResult> ServerStreaming(int id)
         {
             var channel = GrpcChannel.ForAddress("https://localhost:7181");
             var client = new Greeter.GreeterClient(channel);
             Dictionary<string, string> statusDict = new Dictionary<string, string>();
             var cts = new CancellationTokenSource();
             cts.CancelAfter(TimeSpan.FromSeconds(5));
-            using (var call = client.SendStatusSS(new SRequest { }, cancellationToken:
+            using (var call = client.SendStatusSS(new SRequest { No = id}, cancellationToken:
            cts.Token))
             {
                 try
                 {
                     await foreach (var message in call.ResponseStream.ReadAllAsync())
                     {
-                        statusDict.Add(message.StatusInfo[0].Author,
-                       message.StatusInfo[0].Description);
+                        statusDict[message.StatusInfo[0].Author] = message.StatusInfo[0].Description;
                     }
                 }
                 catch (RpcException ex) when (ex.StatusCode ==
@@ -75,50 +76,53 @@ namespace gRPCClient.Controllers
             return View("ShowStatus", (object)statusDict);
         }
 
-        public async Task<IActionResult> ClientStreaming()
+        [HttpGet("Home/ClientStreaming")]
+        public async Task<IActionResult> ClientStreaming([FromQuery] string id)
         {
             var channel = GrpcChannel.ForAddress("https://localhost:7181");
             var client = new Greeter.GreeterClient(channel);
             Dictionary<string, string> statusDict = new Dictionary<string, string>();
-            int[] statuses = { 3, 2, 4 };
-            using (var call = client.SendStatusCS())
-            {
-                foreach (var sT in statuses)
-                {
-                    await call.RequestStream.WriteAsync(new SRequest { No = sT });
-                }
-                await call.RequestStream.CompleteAsync();
-                SResponse sRes = await call.ResponseAsync;
-                foreach (StatusInfo status in sRes.StatusInfo)
-                    statusDict.Add(status.Author, status.Description);
-            }
+            int[] statusNos = id?.Split(',').Select(int.Parse).ToArray() ?? new int[0];
+
+            using var call = client.SendStatusCS();
+            foreach (var no in statusNos)
+                await call.RequestStream.WriteAsync(new SRequest { No = no });
+
+            await call.RequestStream.CompleteAsync();
+            var response = await call.ResponseAsync;
+
+            foreach (var status in response.StatusInfo)
+                statusDict[status.Author] = status.Description;
+
             return View("ShowStatus", (object)statusDict);
         }
 
-        public async Task<IActionResult> BiDirectionalStreaming()
+        [HttpGet("Home/BiDirectionalStreaming")]
+        public async Task<IActionResult> BiDirectionalStreaming([FromQuery] string id)
         {
             var channel = GrpcChannel.ForAddress("https://localhost:7181");
             var client = new Greeter.GreeterClient(channel);
             Dictionary<string, string> statusDict = new Dictionary<string, string>();
-            using (var call = client.SendStatusBD())
+
+            int[] statusNos = id?.Split(',').Select(int.Parse).ToArray() ?? new int[0];
+
+            using var call = client.SendStatusBD();
+
+            var readTask = Task.Run(async () =>
             {
-                var responseReaderTask = Task.Run(async () =>
+                await foreach (var msg in call.ResponseStream.ReadAllAsync())
                 {
-                    while (await call.ResponseStream.MoveNext())
-                    {
-                        var response = call.ResponseStream.Current;
-                        foreach (StatusInfo status in response.StatusInfo)
-                            statusDict.Add(status.Author, status.Description);
-                    }
-                });
-                int[] statusNo = { 3, 2, 4 };
-                foreach (var sT in statusNo)
-                {
-                    await call.RequestStream.WriteAsync(new SRequest { No = sT });
+                    foreach (var status in msg.StatusInfo)
+                        statusDict[status.Author] = status.Description;
                 }
-                await call.RequestStream.CompleteAsync();
-                await responseReaderTask;
-            }
+            });
+
+            foreach (var no in statusNos)
+                await call.RequestStream.WriteAsync(new SRequest { No = no });
+
+            await call.RequestStream.CompleteAsync();
+            await readTask;
+
             return View("ShowStatus", (object)statusDict);
         }
 

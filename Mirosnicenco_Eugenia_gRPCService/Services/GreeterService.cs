@@ -22,9 +22,9 @@ namespace Mirosnicenco_Eugenia_gRPCService.Services
         public override async Task SendStatusSS(SRequest request, IServerStreamWriter<SResponse> responseStream, ServerCallContext context)
         {
             List<StatusInfo> statusList = StatusRepo();
-            SResponse sRes;
-            var i = 0;
-            while (!context.CancellationToken.IsCancellationRequested)
+            /*SResponse sRes;*/
+            int startIndex = Math.Max(0, request.No - 1);
+            /*while (!context.CancellationToken.IsCancellationRequested)
             {
                 sRes = new SResponse();
                 sRes.StatusInfo.Add(statusList.Skip(i).Take(1));
@@ -32,7 +32,17 @@ namespace Mirosnicenco_Eugenia_gRPCService.Services
                 i++;
 
                 await Task.Delay(1000);
+            }*/
+            for (int i = startIndex; i < statusList.Count && !context.CancellationToken.IsCancellationRequested; i++)
+            {
+                var sRes = new SResponse();
+                sRes.StatusInfo.Add(statusList[i]); // ad?ug?m un singur StatusInfo, nu o list?
+
+                await responseStream.WriteAsync(sRes);
+
+                await Task.Delay(1000); // simulare streaming
             }
+
         }
         public List<StatusInfo> StatusRepo()
         {
