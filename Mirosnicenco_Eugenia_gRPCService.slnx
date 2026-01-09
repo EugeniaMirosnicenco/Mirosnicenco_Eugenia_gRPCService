@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="gRPCClient/gRPCClient.csproj" />
+  <Project Path="Mirosnicenco_Eugenia_gRPCService/Mirosnicenco_Eugenia_gRPCService.csproj" />
+</Solution>
